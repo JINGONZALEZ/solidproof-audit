@@ -1,0 +1,109 @@
+'npx hardhat clean' running (wd: C:\Users\eugen\Desktop\Jin-Projects\08-marketplace-presello-io)
+'npx hardhat clean --global' running (wd: C:\Users\eugen\Desktop\Jin-Projects\08-marketplace-presello-io)
+Problem deserializing hardhat configuration, using defaults: Expecting value: line 1 column 1 (char 0)
+'npx hardhat compile --force' running (wd: C:\Users\eugen\Desktop\Jin-Projects\08-marketplace-presello-io)
+INFO:Detectors:
+Detector: reentrancy-no-eth
+Reentrancy in PreselloVault._tryRelease(address,address,uint256) (contracts/Vault.sol#293-325):
+	External calls:
+	- (success,returndata) = token.call(abi.encodeWithSelector(IERC20.transfer.selector,to,amount)) (contracts/Vault.sol#308-310)
+	State variables written after the call(s):
+	- dailyWithdrawn[token][today] = used (contracts/Vault.sol#320)
+	VaultGovernance.dailyWithdrawn (contracts/VaultGovernance.sol#594) can be used in cross function reentrancies:
+	- VaultGovernance.dailyWithdrawn (contracts/VaultGovernance.sol#594)
+	- PreselloVault.remainingDailyCapacity(address) (contracts/Vault.sol#262-267)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#reentrancy-vulnerabilities-2
+INFO:Detectors:
+Detector: calls-loop
+PreselloVault._tryRelease(address,address,uint256) (contracts/Vault.sol#293-325) has external calls inside a loop: (success,returndata) = token.call(abi.encodeWithSelector(IERC20.transfer.selector,to,amount)) (contracts/Vault.sol#308-310)
+	Calls stack containing the loop:
+		PreselloVault.batchRelease(address[],address[],uint256[])
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation/#calls-inside-a-loop
+INFO:Detectors:
+Detector: timestamp
+PreselloVault.queueLargeRelease(address,address,uint256) (contracts/Vault.sol#181-212) uses timestamp for comparisons
+	Dangerous comparisons:
+	- require(bool,string)(block.timestamp >= lastLargeReleaseQueued[token] + LARGE_RELEASE_REQUEUE_COOLDOWN,Vault: large release requeue cooldown active) (contracts/Vault.sol#194-197)
+PreselloVault.executeLargeRelease(uint256) (contracts/Vault.sol#218-234) uses timestamp for comparisons
+	Dangerous comparisons:
+	- require(bool,string)(! op.executed,Vault: already executed) (contracts/Vault.sol#220)
+	- require(bool,string)(! op.cancelled,Vault: cancelled) (contracts/Vault.sol#221)
+	- require(bool,string)(! op.isEmergency,Vault: use executeEmergencyWithdraw) (contracts/Vault.sol#222)
+	- require(bool,string)(block.timestamp >= op.executeAfter,Vault: timelock not expired) (contracts/Vault.sol#223)
+	- require(bool,string)(op.to != safeAddress,Vault: invalid destination for large release) (contracts/Vault.sol#224)
+VaultGovernance.pause() (contracts/VaultGovernance.sol#173-176) uses timestamp for comparisons
+	Dangerous comparisons:
+	- require(bool,string)(block.timestamp >= lastUnpauseTime + PAUSE_COOLDOWN,Vault: pause cooldown active) (contracts/VaultGovernance.sol#174)
+VaultGovernance.approveUnpause(uint256) (contracts/VaultGovernance.sol#184-196) uses timestamp for comparisons
+	Dangerous comparisons:
+	- require(bool,string)(p.proposalType == PROPOSAL_UNPAUSE,Vault: wrong proposal type) (contracts/VaultGovernance.sol#186)
+VaultGovernance.approveChangeBackend(uint256) (contracts/VaultGovernance.sol#210-219) uses timestamp for comparisons
+	Dangerous comparisons:
+	- require(bool,string)(p.proposalType == PROPOSAL_CHANGE_BACKEND,Vault: wrong proposal type) (contracts/VaultGovernance.sol#212)
+VaultGovernance.executeChangeBackend(uint256) (contracts/VaultGovernance.sol#222-238) uses timestamp for comparisons
+	Dangerous comparisons:
+	- require(bool,string)(p.proposalType == PROPOSAL_CHANGE_BACKEND,Vault: wrong proposal type) (contracts/VaultGovernance.sol#224)
+	- require(bool,string)(p.approved,Vault: not yet approved) (contracts/VaultGovernance.sol#225)
+	- require(bool,string)(! p.executed,Vault: already executed) (contracts/VaultGovernance.sol#226)
+	- require(bool,string)(! p.cancelled,Vault: cancelled) (contracts/VaultGovernance.sol#227)
+	- require(bool,string)(block.timestamp >= p.executeAfter,Vault: backend change delay not elapsed) (contracts/VaultGovernance.sol#228)
+	- require(bool,string)(block.timestamp <= p.createdAt + PROPOSAL_EXPIRY + CHANGE_BACKEND_TIMELOCK,Vault: backend change expired) (contracts/VaultGovernance.sol#229-232)
+VaultGovernance.approveEmergencyWithdraw(uint256) (contracts/VaultGovernance.sol#251-274) uses timestamp for comparisons
+	Dangerous comparisons:
+	- require(bool,string)(p.proposalType == PROPOSAL_EMERGENCY_WITHDRAW,Vault: wrong proposal type) (contracts/VaultGovernance.sol#253)
+VaultGovernance.executeEmergencyWithdraw(uint256) (contracts/VaultGovernance.sol#276-289) uses timestamp for comparisons
+	Dangerous comparisons:
+	- require(bool,string)(! op.executed,Vault: already executed) (contracts/VaultGovernance.sol#278)
+	- require(bool,string)(! op.cancelled,Vault: cancelled) (contracts/VaultGovernance.sol#279)
+	- require(bool,string)(op.isEmergency,Vault: not an emergency timelock) (contracts/VaultGovernance.sol#280)
+	- require(bool,string)(block.timestamp >= op.executeAfter,Vault: timelock not expired) (contracts/VaultGovernance.sol#281)
+	- require(bool,string)(op.to == safeAddress,Vault: invalid destination) (contracts/VaultGovernance.sol#282)
+VaultGovernance.approveRotateSigner(uint256) (contracts/VaultGovernance.sol#306-315) uses timestamp for comparisons
+	Dangerous comparisons:
+	- require(bool,string)(p.proposalType == PROPOSAL_ROTATE_SIGNER,Vault: wrong proposal type) (contracts/VaultGovernance.sol#308)
+VaultGovernance.executeRotateSigner(uint256) (contracts/VaultGovernance.sol#317-339) uses timestamp for comparisons
+	Dangerous comparisons:
+	- require(bool,string)(p.proposalType == PROPOSAL_ROTATE_SIGNER,Vault: wrong proposal type) (contracts/VaultGovernance.sol#319)
+	- require(bool,string)(p.approved,Vault: not yet approved) (contracts/VaultGovernance.sol#320)
+	- require(bool,string)(! p.executed,Vault: already executed) (contracts/VaultGovernance.sol#321)
+	- require(bool,string)(! p.cancelled,Vault: cancelled) (contracts/VaultGovernance.sol#322)
+	- require(bool,string)(block.timestamp >= p.executeAfter,Vault: rotation delay not elapsed) (contracts/VaultGovernance.sol#323)
+	- require(bool,string)(block.timestamp <= p.createdAt + PROPOSAL_EXPIRY + SIGNER_ROTATION_TIMELOCK,Vault: rotation expired) (contracts/VaultGovernance.sol#324-327)
+	- require(bool,string)(! _isSigner(p.newAddress),Vault: already a signer) (contracts/VaultGovernance.sol#328)
+	- require(bool,string)(p.newAddress != backendAddress,Vault: new signer == backend) (contracts/VaultGovernance.sol#329)
+VaultGovernance.approveRescueToken(uint256) (contracts/VaultGovernance.sol#352-378) uses timestamp for comparisons
+	Dangerous comparisons:
+	- require(bool,string)(p.proposalType == PROPOSAL_RESCUE_TOKEN,Vault: wrong proposal type) (contracts/VaultGovernance.sol#354)
+VaultGovernance.cancelProposal(uint256) (contracts/VaultGovernance.sol#384-402) uses timestamp for comparisons
+	Dangerous comparisons:
+	- require(bool,string)(! p.executed,Vault: already executed) (contracts/VaultGovernance.sol#386)
+	- require(bool,string)(! p.cancelled,Vault: already cancelled) (contracts/VaultGovernance.sol#387)
+	- require(bool,string)(block.timestamp <= p.createdAt + PROPOSAL_EXPIRY,Vault: proposal expired) (contracts/VaultGovernance.sol#388)
+VaultGovernance.cancelTimelock(uint256) (contracts/VaultGovernance.sol#408-424) uses timestamp for comparisons
+	Dangerous comparisons:
+	- require(bool,string)(! op.executed,Vault: already executed) (contracts/VaultGovernance.sol#410)
+	- require(bool,string)(! op.cancelled,Vault: already cancelled) (contracts/VaultGovernance.sol#411)
+VaultGovernance.hasActiveProposalOfType(uint8) (contracts/VaultGovernance.sol#494-502) uses timestamp for comparisons
+	Dangerous comparisons:
+	- p.executed || p.cancelled || block.timestamp > p.createdAt + PROPOSAL_EXPIRY (contracts/VaultGovernance.sol#498)
+VaultGovernance._requireProposalActive(Proposal) (contracts/VaultGovernance.sol#512-516) uses timestamp for comparisons
+	Dangerous comparisons:
+	- require(bool,string)(! p.executed,Vault: already executed) (contracts/VaultGovernance.sol#513)
+	- require(bool,string)(! p.cancelled,Vault: cancelled) (contracts/VaultGovernance.sol#514)
+	- require(bool,string)(block.timestamp <= p.createdAt + PROPOSAL_EXPIRY,Vault: proposal expired) (contracts/VaultGovernance.sol#515)
+VaultGovernance._createProposal(uint8,address,address,address) (contracts/VaultGovernance.sol#518-556) uses timestamp for comparisons
+	Dangerous comparisons:
+	- require(bool,string)(existing.executed || existing.cancelled || block.timestamp > effectiveExpiry,Vault: active proposal exists for this type) (contracts/VaultGovernance.sol#534-538)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#block-timestamp
+INFO:Detectors:
+Detector: low-level-calls
+Low level call in PreselloVault._tryRelease(address,address,uint256) (contracts/Vault.sol#293-325):
+	- (success,returndata) = token.call(abi.encodeWithSelector(IERC20.transfer.selector,to,amount)) (contracts/Vault.sol#308-310)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#low-level-calls
+INFO:Detectors:
+Detector: immutable-states
+FeeOnTransferMockERC20._decimals (contracts/test/FeeOnTransferMockERC20.sol#13) should be immutable 
+FeeOnTransferMockERC20.feePercent (contracts/test/FeeOnTransferMockERC20.sol#14) should be immutable 
+MockERC20._decimals (contracts/test/MockERC20.sol#11) should be immutable 
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#state-variables-that-could-be-declared-immutable
+INFO:Slither:. analyzed (17 contracts with 98 detectors), 22 result(s) found
