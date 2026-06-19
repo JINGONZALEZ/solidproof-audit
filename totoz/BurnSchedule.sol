@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * @title BurnSchedule — Two-phase token burn over 5 years (halving curve)
@@ -32,7 +33,17 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  *         Constructor params: _totoz (TOTOz token), _ozt (OZT token),
  *         _burnSource (wallet holding unallocated supply), admin (Gnosis Safe multi-sig).
  */
-contract BurnSchedule is AccessControl {
+contract BurnSchedule is AccessControl, ReentrancyGuard {
+    // --- Custom Errors ---
+    error ZeroAddress();
+    error AlreadyStarted();
+    error ScheduleNotStarted();
+    error BurnScheduleComplete();
+    error TooEarly();
+    error BurnSchedulePausedError();
+    error DiscretionaryPhaseExecutorOnly();
+    error CannotRenounceAdminRole();
+
     bytes32 public constant EXECUTOR_ROLE = keccak256("EXECUTOR_ROLE");
 
     /// @notice TOTOz token contract
@@ -94,10 +105,10 @@ contract BurnSchedule is AccessControl {
         address _burnSource,
         address admin
     ) {
-        require(_totoz != address(0), "Zero TOTOz address");
-        require(_ozt != address(0), "Zero OZT address");
-        require(_burnSource != address(0), "Zero burn source");
-        require(admin != address(0), "Zero admin address");
+        if (_totoz == address(0)) revert ZeroAddress();
+        if (_ozt == address(0)) revert ZeroAddress();
+        if (_burnSource == address(0)) revert ZeroAddress();
+        if (admin == address(0)) revert ZeroAddress();
 
         totoz = IBurnable(_totoz);
         ozt = IBurnable(_ozt);
@@ -112,7 +123,7 @@ contract BurnSchedule is AccessControl {
      *         Sets the clock for the first burn.
      */
     function startSchedule() external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(startTimestamp == 0, "Already started");
+        if (startTimestamp != 0) revert AlreadyStarted();
         startTimestamp = block.timestamp;
         lastBurnTimestamp = block.timestamp;
         emit BurnScheduleStarted(block.timestamp);
@@ -121,6 +132,7 @@ contract BurnSchedule is AccessControl {
     /**
      * @notice Pause or unpause Phase 2 discretionary burns.
      *         Phase 1 (trustless) cannot be paused.
+     * @param _paused Whether to pause (true) or unpause (false)
      */
     function setPaused(bool _paused) external onlyRole(DEFAULT_ADMIN_ROLE) {
         paused = _paused;
@@ -141,22 +153,18 @@ contract BurnSchedule is AccessControl {
      *         Follows Checks-Effects-Interactions pattern: state is updated before
      *         external calls to prevent reentrancy and ensure atomicity.
      */
-    function executeBurn() external {
+    function executeBurn() external nonReentrant {
         // --- CHECKS ---
-        require(startTimestamp != 0, "Schedule not started");
-        require(monthsCompleted < TOTAL_MONTHS, "Burn schedule complete");
-        require(
-            block.timestamp >= lastBurnTimestamp + BURN_INTERVAL,
-            "Too early - wait 30 days"
-        );
+        if (startTimestamp == 0) revert ScheduleNotStarted();
+        if (monthsCompleted >= TOTAL_MONTHS) revert BurnScheduleComplete();
+        if (block.timestamp < lastBurnTimestamp + BURN_INTERVAL) revert TooEarly();
 
         // Phase 2: require role + not paused
         if (monthsCompleted >= TRUSTLESS_MONTHS) {
-            require(!paused, "Burn schedule paused");
-            require(
-                hasRole(EXECUTOR_ROLE, msg.sender) || hasRole(DEFAULT_ADMIN_ROLE, msg.sender),
-                "Discretionary phase: executor only"
-            );
+            if (paused) revert BurnSchedulePausedError();
+            if (!hasRole(EXECUTOR_ROLE, msg.sender) && !hasRole(DEFAULT_ADMIN_ROLE, msg.sender)) {
+                revert DiscretionaryPhaseExecutorOnly();
+            }
         }
         // Phase 1 (trustless): no role check, no pause check — anyone can call
 
@@ -167,7 +175,7 @@ contract BurnSchedule is AccessControl {
         // --- EFFECTS (before external calls — CEI pattern) ---
         // Increment by interval (not block.timestamp) to allow catch-up if months were missed.
         lastBurnTimestamp = lastBurnTimestamp + BURN_INTERVAL;
-        monthsCompleted++;
+        ++monthsCompleted;
 
         // --- INTERACTIONS ---
         totoz.burnFrom(burnSource, totozzToBurn);
@@ -177,22 +185,27 @@ contract BurnSchedule is AccessControl {
     }
 
     /// @notice Prevent accidental renounce of DEFAULT_ADMIN_ROLE.
+    /// @param role The role to renounce
+    /// @param callerConfirmation The address confirming the renounce
     function renounceRole(bytes32 role, address callerConfirmation) public override {
-        require(role != DEFAULT_ADMIN_ROLE, "Cannot renounce admin role");
+        if (role == DEFAULT_ADMIN_ROLE) revert CannotRenounceAdminRole();
         super.renounceRole(role, callerConfirmation);
     }
 
     /// @notice Returns true if the burn is still in the trustless phase.
+    /// @return Whether the schedule is in the trustless phase
     function isTrustlessPhase() external view returns (bool) {
         return monthsCompleted < TRUSTLESS_MONTHS;
     }
 
     /// @notice Returns the number of months remaining in the burn schedule.
+    /// @return The number of months left
     function remainingMonths() external view returns (uint256) {
         return TOTAL_MONTHS - monthsCompleted;
     }
 
     /// @notice Returns the timestamp when the next burn can be executed.
+    /// @return The next eligible burn timestamp, or 0 if complete or not started
     function nextBurnTimestamp() external view returns (uint256) {
         if (monthsCompleted >= TOTAL_MONTHS) return 0;
         if (startTimestamp == 0) return 0;
@@ -202,6 +215,7 @@ contract BurnSchedule is AccessControl {
     /**
      * @notice Returns true if a burn can be executed now by the caller.
      *         Phase-aware: returns false for unauthorized callers in Phase 2.
+     * @return Whether a burn can be executed by msg.sender right now
      */
     function canBurn() external view returns (bool) {
         if (startTimestamp == 0) return false;
@@ -219,5 +233,8 @@ contract BurnSchedule is AccessControl {
  * @dev Interface for token contracts with burnFrom function.
  */
 interface IBurnable {
+    /// @notice Burn tokens from a designated account.
+    /// @param account The account to burn from
+    /// @param amount The amount of tokens to burn
     function burnFrom(address account, uint256 amount) external;
 }

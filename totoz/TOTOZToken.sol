@@ -26,6 +26,25 @@ import "@openzeppelin/contracts/access/AccessControl.sol";
 contract TOTOZToken is ERC20, ERC20Pausable, Ownable2Step, AccessControl {
     using SafeERC20 for IERC20;
 
+    // --- Custom Errors ---
+    error ZeroAddress();
+    error BurnSourceAlreadySet();
+    error ExceedsBurnCap();
+    error WouldBreachBurnFloor();
+    error DailyBurnCapExceeded();
+    error BelowMinimum();
+    error ExceedsDailyCap();
+    error EmptyRecipientsArray();
+    error LengthMismatch();
+    error MaxRecipientsExceeded();
+    error ZeroAmount();
+    error InsufficientBalance();
+    error DuplicateRecipient();
+    error CannotRenounceOwnership();
+    error CannotRenounceAdminRole();
+    error CannotRescueOwnToken();
+    error CanOnlyBurnFromDesignatedSource();
+
     /// @notice Role for BurnSchedule contract to call burnFrom.
     bytes32 public constant BURNER_ROLE = keccak256("BURNER_ROLE");
 
@@ -58,7 +77,7 @@ contract TOTOZToken is ERC20, ERC20Pausable, Ownable2Step, AccessControl {
         ERC20("TOTOz", "TOTOZ")
         Ownable(initialOwner)
     {
-        require(initialOwner != address(0), "Zero owner address");
+        if (initialOwner == address(0)) revert ZeroAddress();
         _mint(initialOwner, 8_000_000_000_000_000 * 10 ** 18);
         maxBurnPerCall = 100_000 * 10 ** 18;
         _grantRole(DEFAULT_ADMIN_ROLE, initialOwner);
@@ -71,8 +90,8 @@ contract TOTOZToken is ERC20, ERC20Pausable, Ownable2Step, AccessControl {
      * @param _burnSource The burn source wallet address (typically the multi-sig)
      */
     function setBurnSource(address _burnSource) external onlyOwner {
-        require(burnSource == address(0), "Burn source already set");
-        require(_burnSource != address(0), "Zero address");
+        if (burnSource != address(0)) revert BurnSourceAlreadySet();
+        if (_burnSource == address(0)) revert ZeroAddress();
         burnSource = _burnSource;
         emit BurnSourceSet(_burnSource);
     }
@@ -87,8 +106,8 @@ contract TOTOZToken is ERC20, ERC20Pausable, Ownable2Step, AccessControl {
      * @param reason Description of the agent action (e.g., "country_comparison")
      */
     function agentBurn(address user, uint256 amount, string calldata reason) external onlyOwner {
-        require(amount <= maxBurnPerCall, "Exceeds burn cap");
-        require(totalSupply() - amount >= BURN_FLOOR, "Would breach burn floor");
+        if (amount > maxBurnPerCall) revert ExceedsBurnCap();
+        if (totalSupply() - amount < BURN_FLOOR) revert WouldBreachBurnFloor();
 
         // Daily per-user rate limit
         uint256 today = block.timestamp / 1 days;
@@ -96,7 +115,7 @@ contract TOTOZToken is ERC20, ERC20Pausable, Ownable2Step, AccessControl {
             dailyBurned[user] = 0;
             lastBurnDay[user] = today;
         }
-        require(dailyBurned[user] + amount <= DAILY_BURN_CAP, "Daily burn cap exceeded");
+        if (dailyBurned[user] + amount > DAILY_BURN_CAP) revert DailyBurnCapExceeded();
         dailyBurned[user] += amount;
 
         _burn(user, amount);
@@ -108,8 +127,8 @@ contract TOTOZToken is ERC20, ERC20Pausable, Ownable2Step, AccessControl {
      * @param newMax The new maximum burn amount
      */
     function setMaxBurnPerCall(uint256 newMax) external onlyOwner {
-        require(newMax >= 1_000 * 10 ** 18, "Below minimum (1,000)");
-        require(newMax <= DAILY_BURN_CAP, "Cannot exceed daily cap");
+        if (newMax < 1_000 * 10 ** 18) revert BelowMinimum();
+        if (newMax > DAILY_BURN_CAP) revert ExceedsDailyCap();
         emit MaxBurnUpdated(maxBurnPerCall, newMax);
         maxBurnPerCall = newMax;
     }
@@ -121,7 +140,7 @@ contract TOTOZToken is ERC20, ERC20Pausable, Ownable2Step, AccessControl {
      * @param amount The number of tokens to burn from owner
      */
     function scheduledBurn(uint256 amount) external onlyOwner {
-        require(totalSupply() - amount >= BURN_FLOOR, "Would breach burn floor");
+        if (totalSupply() - amount < BURN_FLOOR) revert WouldBreachBurnFloor();
         _burn(msg.sender, amount);
         emit ScheduledBurn(amount);
     }
@@ -135,19 +154,21 @@ contract TOTOZToken is ERC20, ERC20Pausable, Ownable2Step, AccessControl {
      * @param amount The number of tokens to burn
      */
     function burnFrom(address account, uint256 amount) external onlyRole(BURNER_ROLE) {
-        require(account == burnSource, "Can only burn from designated source");
-        require(totalSupply() - amount >= BURN_FLOOR, "Would breach burn floor");
+        if (account != burnSource) revert CanOnlyBurnFromDesignatedSource();
+        if (totalSupply() - amount < BURN_FLOOR) revert WouldBreachBurnFloor();
         _spendAllowance(account, msg.sender, amount);
         _burn(account, amount);
         emit BurnFromSource(account, amount);
     }
 
     /// @notice Returns the minimum total supply floor.
+    /// @return The burn floor amount in wei
     function burnFloor() external pure returns (uint256) {
         return BURN_FLOOR;
     }
 
     /// @notice Returns true if totalSupply is above the burn floor.
+    /// @return Whether burns are still possible
     function isBurnActive() external view returns (bool) {
         return totalSupply() > BURN_FLOOR;
     }
@@ -164,49 +185,58 @@ contract TOTOZToken is ERC20, ERC20Pausable, Ownable2Step, AccessControl {
         address[] calldata recipients,
         uint256[] calldata amounts
     ) external onlyOwner {
-        require(recipients.length > 0, "Empty recipients array");
-        require(recipients.length == amounts.length, "Length mismatch");
-        require(recipients.length <= 200, "Max 200 recipients");
+        uint256 len = recipients.length;
+        if (len == 0) revert EmptyRecipientsArray();
+        if (len != amounts.length) revert LengthMismatch();
+        if (len > 200) revert MaxRecipientsExceeded();
 
         // Pre-validate total balance
         uint256 total = 0;
-        for (uint256 i = 0; i < recipients.length; i++) {
-            require(recipients[i] != address(0), "Zero address");
-            require(amounts[i] > 0, "Zero amount");
+        for (uint256 i = 0; i < len; ) {
+            if (recipients[i] == address(0)) revert ZeroAddress();
+            if (amounts[i] == 0) revert ZeroAmount();
             total += amounts[i];
+            unchecked { ++i; }
         }
-        require(balanceOf(msg.sender) >= total, "Insufficient balance for airdrop");
+        if (balanceOf(msg.sender) < total) revert InsufficientBalance();
 
         // Duplicate check
-        for (uint256 i = 0; i < recipients.length; i++) {
-            for (uint256 j = i + 1; j < recipients.length; j++) {
-                require(recipients[i] != recipients[j], "Duplicate recipient");
+        for (uint256 i = 0; i < len; ) {
+            for (uint256 j = i + 1; j < len; ) {
+                if (recipients[i] == recipients[j]) revert DuplicateRecipient();
+                unchecked { ++j; }
             }
+            unchecked { ++i; }
         }
 
-        for (uint256 i = 0; i < recipients.length; i++) {
+        for (uint256 i = 0; i < len; ) {
             _transfer(msg.sender, recipients[i], amounts[i]);
+            unchecked { ++i; }
         }
 
-        emit BatchAirdrop(recipients.length, total);
+        emit BatchAirdrop(len, total);
     }
 
+    /// @notice Pause all token transfers.
     function pause() external onlyOwner {
         _pause();
     }
 
+    /// @notice Unpause all token transfers.
     function unpause() external onlyOwner {
         _unpause();
     }
 
     /// @notice Prevent accidental renounce — would permanently lock admin functions.
     function renounceOwnership() public pure override {
-        revert("Cannot renounce ownership");
+        revert CannotRenounceOwnership();
     }
 
     /// @notice Prevent accidental renounce of DEFAULT_ADMIN_ROLE.
+    /// @param role The role to renounce
+    /// @param callerConfirmation The address confirming the renounce
     function renounceRole(bytes32 role, address callerConfirmation) public override {
-        require(role != DEFAULT_ADMIN_ROLE, "Cannot renounce admin role");
+        if (role == DEFAULT_ADMIN_ROLE) revert CannotRenounceAdminRole();
         super.renounceRole(role, callerConfirmation);
     }
 
@@ -217,13 +247,14 @@ contract TOTOZToken is ERC20, ERC20Pausable, Ownable2Step, AccessControl {
      * @param amount The amount to send to owner
      */
     function rescueTokens(IERC20 token, uint256 amount) external onlyOwner {
-        require(address(token) != address(this), "Cannot rescue own token");
+        if (address(token) == address(this)) revert CannotRescueOwnToken();
         token.safeTransfer(owner(), amount);
     }
 
     /**
      * @dev Sync DEFAULT_ADMIN_ROLE when ownership transfers.
      *      Prevents role divergence between Ownable2Step and AccessControl.
+     * @param newOwner The new owner address
      */
     function _transferOwnership(address newOwner) internal override {
         address oldOwner = owner();
@@ -236,6 +267,12 @@ contract TOTOZToken is ERC20, ERC20Pausable, Ownable2Step, AccessControl {
         }
     }
 
+    /**
+     * @dev Hook that is called before any transfer of tokens, including minting and burning.
+     * @param from The address tokens are transferred from
+     * @param to The address tokens are transferred to
+     * @param value The amount of tokens transferred
+     */
     function _update(
         address from,
         address to,
@@ -244,6 +281,11 @@ contract TOTOZToken is ERC20, ERC20Pausable, Ownable2Step, AccessControl {
         super._update(from, to, value);
     }
 
+    /**
+     * @notice Check if the contract supports a given interface.
+     * @param interfaceId The interface identifier to check
+     * @return Whether the interface is supported
+     */
     function supportsInterface(bytes4 interfaceId)
         public view override(AccessControl) returns (bool)
     {
